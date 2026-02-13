@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 CREATE TABLE movie_ids (
     id             INTEGER        NOT NULL PRIMARY KEY,
     original_title TEXT           NOT NULL,
@@ -7,3 +9,4 @@ CREATE TABLE movie_ids (
 );
 
 CREATE INDEX idx_movie_ids_popularity ON movie_ids (popularity);
+CREATE INDEX idx_movie_ids_title_trgm ON movie_ids USING GIN (original_title gin_trgm_ops);
