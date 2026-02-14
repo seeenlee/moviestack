@@ -15,3 +15,13 @@ type MovieID struct {
 	Video         bool           `db:"video" json:"video"`
 	Popularity    pgtype.Numeric `db:"popularity" json:"popularity"`
 }
+
+type User struct {
+	ID          int64              `db:"id" json:"id"`
+	Username    string             `db:"username" json:"username"`
+	DisplayName pgtype.Text        `db:"display_name" json:"display_name"`
+	Bio         pgtype.Text        `db:"bio" json:"bio"`
+	AvatarUrl   pgtype.Text        `db:"avatar_url" json:"avatar_url"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
