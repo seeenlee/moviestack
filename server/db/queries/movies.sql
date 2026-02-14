@@ -5,3 +5,10 @@ FROM movie_ids
 WHERE similarity(original_title, @query) > 0.1
 ORDER BY score DESC, popularity DESC
 LIMIT 20;
+
+-- name: MovieExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM movie_ids
+    WHERE id = @id
+);

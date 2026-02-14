@@ -16,6 +16,17 @@ type MovieID struct {
 	Popularity    pgtype.Numeric `db:"popularity" json:"popularity"`
 }
 
+type MovieLog struct {
+	ID           int64              `db:"id" json:"id"`
+	UserID       int64              `db:"user_id" json:"user_id"`
+	MovieID      int32              `db:"movie_id" json:"movie_id"`
+	WatchedOn    pgtype.Date        `db:"watched_on" json:"watched_on"`
+	Note         pgtype.Text        `db:"note" json:"note"`
+	RankPosition pgtype.Int4        `db:"rank_position" json:"rank_position"`
+	CreatedAt    pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
 type User struct {
 	ID          int64              `db:"id" json:"id"`
 	Username    string             `db:"username" json:"username"`

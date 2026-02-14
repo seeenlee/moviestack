@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 
 interface Movie {
@@ -25,6 +26,9 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [activeUser, setActiveUser] = useState<ActiveUser | null>(null);
+  const [addingMovieId, setAddingMovieId] = useState<number | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -78,8 +82,68 @@ export default function Home() {
     setActiveUser(null);
   };
 
+  const addToLog = async (movie: Movie) => {
+    if (!activeUser) return;
+
+    setAddingMovieId(movie.id);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const res = await fetch(`${API_URL}/api/users/${activeUser.id}/log`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          movie_id: movie.id,
+        }),
+      });
+
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(payload?.error || "Failed to add movie to log");
+      }
+
+      setActionMessage(`Saved "${movie.original_title}" to your log.`);
+    } catch (err) {
+      console.error("Add to log error:", err);
+      setActionError(err instanceof Error ? err.message : "Failed to add movie to log");
+    } finally {
+      setAddingMovieId(null);
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col items-center bg-zinc-50 px-4 pt-16 font-sans dark:bg-zinc-950">
+      <div className="mb-4 flex w-full max-w-xl flex-wrap gap-2 text-sm">
+        <Link
+          href="/"
+          className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Movie Search
+        </Link>
+        <Link
+          href="/log"
+          className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          My Log
+        </Link>
+        <Link
+          href="/admin/login"
+          className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Admin Login
+        </Link>
+        <Link
+          href="/admin/users"
+          className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Admin Users
+        </Link>
+      </div>
+
       <div className="mb-8 w-full max-w-xl rounded-xl border border-zinc-200 bg-white p-3 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         {activeUser ? (
           <div className="flex items-center justify-between gap-3">
@@ -97,10 +161,23 @@ export default function Home() {
           </div>
         ) : (
           <p className="text-zinc-600 dark:text-zinc-400">
-            No active user selected. Go to <code>/admin/login</code> to pick one.
+            No active user selected. Go to <code>/admin/login</code> to pick one before adding
+            movies to your log.
           </p>
         )}
       </div>
+
+      {actionError && (
+        <div className="mb-4 w-full max-w-xl rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          {actionError}
+        </div>
+      )}
+
+      {actionMessage && (
+        <div className="mb-4 w-full max-w-xl rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-900/60 dark:bg-green-950/40 dark:text-green-300">
+          {actionMessage}
+        </div>
+      )}
 
       <h1 className="mb-8 text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
         MovieStack
@@ -144,6 +221,20 @@ export default function Home() {
                     Popularity: {movie.popularity.toLocaleString()}
                   </p>
                 </div>
+                {activeUser ? (
+                  <button
+                    type="button"
+                    onClick={() => addToLog(movie)}
+                    disabled={addingMovieId === movie.id}
+                    className="ml-4 rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    {addingMovieId === movie.id ? "Adding..." : "Add to log"}
+                  </button>
+                ) : (
+                  <span className="ml-4 text-xs text-zinc-500 dark:text-zinc-400">
+                    Login required
+                  </span>
+                )}
               </li>
             ))}
           </ul>

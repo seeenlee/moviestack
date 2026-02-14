@@ -10,9 +10,14 @@ import (
 
 type Querier interface {
 	CreateUser(ctx context.Context, username string) (User, error)
+	DeleteMovieLogEntry(ctx context.Context, arg DeleteMovieLogEntryParams) (int64, error)
 	DeleteUser(ctx context.Context, id int64) (int64, error)
+	ListMovieLogByUser(ctx context.Context, userID int64) ([]ListMovieLogByUserRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	MovieExists(ctx context.Context, id int32) (bool, error)
 	SearchMovies(ctx context.Context, query string) ([]SearchMoviesRow, error)
+	UpsertMovieLogEntry(ctx context.Context, arg UpsertMovieLogEntryParams) (MovieLog, error)
+	UserExists(ctx context.Context, id int64) (bool, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -11,6 +11,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const movieExists = `-- name: MovieExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM movie_ids
+    WHERE id = $1
+)
+`
+
+func (q *Queries) MovieExists(ctx context.Context, id int32) (bool, error) {
+	row := q.db.QueryRow(ctx, movieExists, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const searchMovies = `-- name: SearchMovies :many
 SELECT id, original_title, adult, video, popularity,
        similarity(original_title, $1) AS score
