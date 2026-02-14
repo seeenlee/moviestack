@@ -9,6 +9,9 @@ import (
 )
 
 type Querier interface {
+	CreateUser(ctx context.Context, username string) (User, error)
+	DeleteUser(ctx context.Context, id int64) (int64, error)
+	ListUsers(ctx context.Context) ([]User, error)
 	SearchMovies(ctx context.Context, query string) ([]SearchMoviesRow, error)
 }
 

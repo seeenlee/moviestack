@@ -11,14 +11,34 @@ interface Movie {
   score: number;
 }
 
+interface ActiveUser {
+  id: number;
+  username: string;
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const ACTIVE_USER_KEY = "moviestack_active_user";
 
 export default function Home() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [activeUser, setActiveUser] = useState<ActiveUser | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem(ACTIVE_USER_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as ActiveUser;
+      if (parsed && typeof parsed.id === "number" && typeof parsed.username === "string") {
+        setActiveUser(parsed);
+      }
+    } catch {
+      window.localStorage.removeItem(ACTIVE_USER_KEY);
+    }
+  }, []);
 
   useEffect(() => {
     if (query.trim() === "") {
@@ -53,8 +73,35 @@ export default function Home() {
     return () => clearTimeout(timeout);
   }, [query]);
 
+  const onClearUser = () => {
+    window.localStorage.removeItem(ACTIVE_USER_KEY);
+    setActiveUser(null);
+  };
+
   return (
-    <div className="flex min-h-screen flex-col items-center bg-zinc-50 px-4 pt-[20vh] font-sans dark:bg-zinc-950">
+    <div className="flex min-h-screen flex-col items-center bg-zinc-50 px-4 pt-16 font-sans dark:bg-zinc-950">
+      <div className="mb-8 w-full max-w-xl rounded-xl border border-zinc-200 bg-white p-3 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+        {activeUser ? (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-zinc-700 dark:text-zinc-300">
+              Viewing as <span className="font-semibold">{activeUser.username}</span> (ID:{" "}
+              {activeUser.id})
+            </p>
+            <button
+              type="button"
+              onClick={onClearUser}
+              className="rounded-md border border-zinc-300 px-2.5 py-1 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Clear
+            </button>
+          </div>
+        ) : (
+          <p className="text-zinc-600 dark:text-zinc-400">
+            No active user selected. Go to <code>/admin/login</code> to pick one.
+          </p>
+        )}
+      </div>
+
       <h1 className="mb-8 text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
         MovieStack
       </h1>
