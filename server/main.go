@@ -2,128 +2,21 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
-	"time"
 
 	db "github.com/seanlee/moviestack/db/sqlc"
 
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 )
 
-type MovieResult struct {
-	ID            int32   `json:"id"`
-	OriginalTitle string  `json:"original_title"`
-	Adult         bool    `json:"adult"`
-	Video         bool    `json:"video"`
-	Popularity    float64 `json:"popularity"`
-	Score         float32 `json:"score"`
-}
-
-type AdminUserResponse struct {
-	ID          int64   `json:"id"`
-	Username    string  `json:"username"`
-	DisplayName *string `json:"display_name"`
-	Bio         *string `json:"bio"`
-	AvatarURL   *string `json:"avatar_url"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
-}
-
-type CreateAdminUserRequest struct {
-	Username string `json:"username"`
-}
-
-type MovieLogResponse struct {
-	LogID         int64   `json:"log_id"`
-	UserID        int64   `json:"user_id"`
-	MovieID       int32   `json:"movie_id"`
-	OriginalTitle string  `json:"original_title"`
-	WatchedOn     string  `json:"watched_on"`
-	Note          *string `json:"note"`
-	RankPosition  *int32  `json:"rank_position"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
-}
-
-type UpsertMovieLogRequest struct {
-	MovieID   int32   `json:"movie_id"`
-	WatchedOn *string `json:"watched_on"`
-	Note      *string `json:"note"`
-}
-
-func textPtr(value pgtype.Text) *string {
-	if !value.Valid {
-		return nil
-	}
-	v := value.String
-	return &v
-}
-
-func timestamptzRFC3339(value pgtype.Timestamptz) string {
-	if !value.Valid {
-		return ""
-	}
-	return value.Time.UTC().Format(time.RFC3339)
-}
-
-func int4Ptr(value pgtype.Int4) *int32 {
-	if !value.Valid {
-		return nil
-	}
-	v := value.Int32
-	return &v
-}
-
-func dateISO(value pgtype.Date) string {
-	if !value.Valid {
-		return ""
-	}
-	return value.Time.Format("2006-01-02")
-}
-
-func toAdminUserResponse(user db.User) AdminUserResponse {
-	return AdminUserResponse{
-		ID:          user.ID,
-		Username:    user.Username,
-		DisplayName: textPtr(user.DisplayName),
-		Bio:         textPtr(user.Bio),
-		AvatarURL:   textPtr(user.AvatarUrl),
-		CreatedAt:   timestamptzRFC3339(user.CreatedAt),
-		UpdatedAt:   timestamptzRFC3339(user.UpdatedAt),
-	}
-}
-
-func toMovieLogResponse(logEntry db.ListMovieLogByUserRow) MovieLogResponse {
-	return MovieLogResponse{
-		LogID:         logEntry.LogID,
-		UserID:        logEntry.UserID,
-		MovieID:       logEntry.MovieID,
-		OriginalTitle: logEntry.OriginalTitle,
-		WatchedOn:     dateISO(logEntry.WatchedOn),
-		Note:          textPtr(logEntry.Note),
-		RankPosition:  int4Ptr(logEntry.RankPosition),
-		CreatedAt:     timestamptzRFC3339(logEntry.CreatedAt),
-		UpdatedAt:     timestamptzRFC3339(logEntry.UpdatedAt),
-	}
-}
-
 func main() {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		// sslmode=disable is for local dev only; enable SSL in production.
-		databaseURL = "postgres://localhost:5432/moviestack?sslmode=disable"
-	}
+	loadEnvFiles()
+	databaseURL := buildDatabaseURL()
 
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, databaseURL)
@@ -138,9 +31,10 @@ func main() {
 	fmt.Println("Connected to database")
 
 	queries := db.New(pool)
+	importState := &movieImportJobState{status: "idle"}
+	dataDir := resolveDataDir()
 
 	e := echo.New()
-
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
@@ -148,273 +42,9 @@ func main() {
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions},
 	}))
 
-	e.GET("/api/movies/search", func(c echo.Context) error {
-		q := c.QueryParam("q")
-		if q == "" {
-			return c.JSON(http.StatusOK, []MovieResult{})
-		}
-
-		results, err := queries.SearchMovies(c.Request().Context(), q)
-		if err != nil {
-			log.Printf("search error: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to search movies",
-			})
-		}
-
-		movies := make([]MovieResult, len(results))
-		for i, r := range results {
-			pop, _ := r.Popularity.Float64Value()
-			popularity := 0.0
-			if pop.Valid {
-				popularity = math.Round(pop.Float64*10000) / 10000
-			}
-			movies[i] = MovieResult{
-				ID:            r.ID,
-				OriginalTitle: r.OriginalTitle,
-				Adult:         r.Adult,
-				Video:         r.Video,
-				Popularity:    popularity,
-				Score:         r.Score,
-			}
-		}
-
-		return c.JSON(http.StatusOK, movies)
-	})
-
-	e.GET("/api/admin/users", func(c echo.Context) error {
-		results, err := queries.ListUsers(c.Request().Context())
-		if err != nil {
-			log.Printf("list users error: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to list users",
-			})
-		}
-
-		users := make([]AdminUserResponse, len(results))
-		for i, user := range results {
-			users[i] = toAdminUserResponse(user)
-		}
-
-		return c.JSON(http.StatusOK, users)
-	})
-
-	e.POST("/api/admin/users", func(c echo.Context) error {
-		var req CreateAdminUserRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid request body",
-			})
-		}
-
-		username := strings.TrimSpace(req.Username)
-		if username == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "username is required",
-			})
-		}
-
-		user, err := queries.CreateUser(c.Request().Context(), username)
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "users_username_lower_unique" {
-				return c.JSON(http.StatusConflict, map[string]string{
-					"error": "username already exists",
-				})
-			}
-
-			log.Printf("create user error: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to create user",
-			})
-		}
-
-		return c.JSON(http.StatusCreated, toAdminUserResponse(user))
-	})
-
-	e.DELETE("/api/admin/users/:id", func(c echo.Context) error {
-		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid user id",
-			})
-		}
-
-		rowsAffected, err := queries.DeleteUser(c.Request().Context(), id)
-		if err != nil {
-			log.Printf("delete user error: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to delete user",
-			})
-		}
-
-		if rowsAffected == 0 {
-			return c.JSON(http.StatusNotFound, map[string]string{
-				"error": "user not found",
-			})
-		}
-
-		return c.NoContent(http.StatusNoContent)
-	})
-
-	e.GET("/api/users/:userId/log", func(c echo.Context) error {
-		userID, err := strconv.ParseInt(c.Param("userId"), 10, 64)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid user id",
-			})
-		}
-
-		userExists, err := queries.UserExists(c.Request().Context(), userID)
-		if err != nil {
-			log.Printf("user exists error: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to verify user",
-			})
-		}
-		if !userExists {
-			return c.JSON(http.StatusNotFound, map[string]string{
-				"error": "user not found",
-			})
-		}
-
-		results, err := queries.ListMovieLogByUser(c.Request().Context(), userID)
-		if err != nil {
-			log.Printf("list movie log error: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to list movie log",
-			})
-		}
-
-		response := make([]MovieLogResponse, len(results))
-		for i, item := range results {
-			response[i] = toMovieLogResponse(item)
-		}
-
-		return c.JSON(http.StatusOK, response)
-	})
-
-	e.POST("/api/users/:userId/log", func(c echo.Context) error {
-		userID, err := strconv.ParseInt(c.Param("userId"), 10, 64)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid user id",
-			})
-		}
-
-		userExists, err := queries.UserExists(c.Request().Context(), userID)
-		if err != nil {
-			log.Printf("user exists error: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to verify user",
-			})
-		}
-		if !userExists {
-			return c.JSON(http.StatusNotFound, map[string]string{
-				"error": "user not found",
-			})
-		}
-
-		var req UpsertMovieLogRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid request body",
-			})
-		}
-		if req.MovieID <= 0 {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "movie_id is required",
-			})
-		}
-
-		movieExists, err := queries.MovieExists(c.Request().Context(), req.MovieID)
-		if err != nil {
-			log.Printf("movie exists error: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to verify movie",
-			})
-		}
-		if !movieExists {
-			return c.JSON(http.StatusNotFound, map[string]string{
-				"error": "movie not found",
-			})
-		}
-
-		watchedOn := pgtype.Date{Time: time.Now().UTC(), Valid: true}
-		if req.WatchedOn != nil && strings.TrimSpace(*req.WatchedOn) != "" {
-			parsedDate, err := time.Parse("2006-01-02", strings.TrimSpace(*req.WatchedOn))
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "watched_on must be in YYYY-MM-DD format",
-				})
-			}
-			watchedOn = pgtype.Date{Time: parsedDate, Valid: true}
-		}
-
-		note := pgtype.Text{}
-		if req.Note != nil && strings.TrimSpace(*req.Note) != "" {
-			note = pgtype.Text{String: strings.TrimSpace(*req.Note), Valid: true}
-		}
-
-		entry, err := queries.UpsertMovieLogEntry(c.Request().Context(), db.UpsertMovieLogEntryParams{
-			UserID:    userID,
-			MovieID:   req.MovieID,
-			WatchedOn: watchedOn,
-			Note:      note,
-		})
-		if err != nil {
-			log.Printf("upsert movie log error: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to save movie log entry",
-			})
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			"log_id":        entry.ID,
-			"user_id":       entry.UserID,
-			"movie_id":      entry.MovieID,
-			"watched_on":    dateISO(entry.WatchedOn),
-			"note":          textPtr(entry.Note),
-			"rank_position": int4Ptr(entry.RankPosition),
-			"created_at":    timestamptzRFC3339(entry.CreatedAt),
-			"updated_at":    timestamptzRFC3339(entry.UpdatedAt),
-		})
-	})
-
-	e.DELETE("/api/users/:userId/log/:logId", func(c echo.Context) error {
-		userID, err := strconv.ParseInt(c.Param("userId"), 10, 64)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid user id",
-			})
-		}
-
-		logID, err := strconv.ParseInt(c.Param("logId"), 10, 64)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid log id",
-			})
-		}
-
-		rowsAffected, err := queries.DeleteMovieLogEntry(c.Request().Context(), db.DeleteMovieLogEntryParams{
-			ID:     logID,
-			UserID: userID,
-		})
-		if err != nil {
-			log.Printf("delete movie log error: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to delete movie log entry",
-			})
-		}
-
-		if rowsAffected == 0 {
-			return c.JSON(http.StatusNotFound, map[string]string{
-				"error": "movie log entry not found",
-			})
-		}
-
-		return c.NoContent(http.StatusNoContent)
-	})
+	registerMovieRoutes(e, queries, pool, importState, dataDir)
+	registerAdminUserRoutes(e, queries)
+	registerMovieLogRoutes(e, queries)
 
 	port := os.Getenv("PORT")
 	if port == "" {

@@ -1,6 +1,19 @@
 GOOSE ?= goose
 MIGRATIONS_DIR ?= db/migrations
-DB_URL ?= postgres://localhost:5432/moviestack?sslmode=disable
+DB_HOST ?= 127.0.0.1
+
+ifneq (,$(wildcard .env))
+include .env
+export DB_PASS
+endif
+
+DB_PASS_CLEAN := $(patsubst "%",%,$(patsubst '%',%,$(DB_PASS)))
+
+ifeq ($(strip $(DB_PASS_CLEAN)),)
+DB_URL ?= postgres://moviestack@$(DB_HOST):5432/moviestack_dev?sslmode=disable
+else
+DB_URL ?= postgres://moviestack:$(DB_PASS_CLEAN)@$(DB_HOST):5432/moviestack_dev?sslmode=disable
+endif
 
 .PHONY: migrate-status migrate-up migrate-down migrate-reset migrate-create
 

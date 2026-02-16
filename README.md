@@ -23,7 +23,7 @@ make migrate-down
 Use a custom database URL:
 
 ```bash
-make migrate-up DB_URL="postgres://USER:PASSWORD@localhost:5432/moviestack?sslmode=disable"
+make migrate-up DB_URL="postgres://moviestack:PASSWORD@localhost:5432/moviestack_dev?sslmode=disable"
 ```
 
 Create a new migration:
