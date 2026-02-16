@@ -30,8 +30,8 @@ const searchMovies = `-- name: SearchMovies :many
 SELECT id, original_title, adult, video, popularity,
        similarity(original_title, $1) AS score
 FROM movie_ids
-WHERE similarity(original_title, $1) > 0.1
-ORDER BY popularity DESC, score DESC
+WHERE original_title % $1
+ORDER BY score DESC, popularity DESC
 LIMIT 20
 `
 
